@@ -36,7 +36,10 @@ async function amplitudeETL(config, directoryName) {
     } else {
 
         console.log('EXTRACT!\n')
-        extractedData = await amplitudeExtract(credentials, dates, directoryName, config.source.options['is EU?']);
+        extractedData = await amplitudeExtract(
+            credentials, dates, directoryName, config.source.options['is EU?'],
+            config.source.options.gzipFilesPath
+        );
         if (!extractedData) {
             return false;
         }

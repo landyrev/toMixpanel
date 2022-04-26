@@ -22,7 +22,7 @@ const readFilePromisified = promisify(readFile);
 const writeFilePromisified = promisify(writeFile);
 const readDirPromisified = promisify(readdir);
 
-async function main(creds, options, directory = "foo", isEU) {
+async function main(creds, options, directory = "foo", isEU, gzipFilesPath) {
     let baseURL = isEU ? baseURL_EU : baseURL_US;
     //usually just for testing
     if (!existsSync(`./savedData/${directory}`)) {
@@ -39,72 +39,75 @@ async function main(creds, options, directory = "foo", isEU) {
     mkdirSync(`${dataPath}/unzip`)
     mkdirSync(`${dataPath}/json`)
 
-    let auth = "Basic " + Buffer.from(creds.apiKey + ":" + creds.apiSecret).toString('base64');
-    let startForConsole = dayjs(options.start).format('MM-DD-YYYY THH');
-    let endForConsole = dayjs(options.end).format('MM-DD-YYYY THH');
-    console.log(`   calling /export amplitude api for ${startForConsole} - ${endForConsole}`)
-    const response = await fetch(`${baseURL}?start=${options.start}&end=${options.end}`, {
-        headers: {
-            "Authorization": auth
-        }
-
-    });
-
-    if (!response.ok) {
-        console.log(`AMP API ERROR: ${response.status} ${response.statusText}`)
-        return false;
-    } 
-
-    //download archive
-    console.log('   downloading data...');
-    writePath = path.resolve(`${dataPath}/downloaded`)
-    try {
-    await streamPipeline(response.body, createWriteStream(`${writePath}/data.zip`, streamOpts));
-    }
-    catch (e) {
-        console.log(`error downloading data`)
-        console.log(e)
-    }
-    const stats = statSync(`${writePath}/data.zip`);
-    const fileSizeInBytes = stats.size;
-    const fileSizeInMegabytes = fileSizeInBytes / 1000000.0;
-
-    //unzip
-    console.log(`   unzipping data... (${fileSizeInMegabytes} MB)`)
-    writePath = path.resolve(`${dataPath}/unzip`);
     let filesToUngzip = [];
 
-    try {
-        execSync(`unzip -j ${escapeForShell(path.resolve(dataPath+"/downloaded/data.zip"))} -d ${escapeForShell(writePath)}`);
-        let allFiles = await readDirPromisified(writePath);
-        for (let file of allFiles) {
-            if (file.includes(".json.gz")) {
-                filesToUngzip.push(file)
+    if (!gzipFilesPath) {
+        let auth = "Basic " + Buffer.from(creds.apiKey + ":" + creds.apiSecret).toString('base64');
+        let startForConsole = dayjs(options.start).format('MM-DD-YYYY THH');
+        let endForConsole = dayjs(options.end).format('MM-DD-YYYY THH');
+        console.log(`   calling /export amplitude api for ${startForConsole} - ${endForConsole}`)
+        const response = await fetch(`${baseURL}?start=${options.start}&end=${options.end}`, {
+            headers: {
+                "Authorization": auth
             }
 
-        }
-        console.log(`       unzipped ${smartCommas(filesToUngzip.length)} files\n\n`)
-    } catch (e) {
-        console.log(`unzip is not available... trying adm-zip`)
-        const zipped = new zip(`${dataPath}/downloaded/data.zip`);
-        var zipEntries = zipped.getEntries(); // an array of ZipEntry records
-
-
-        zipEntries.forEach(function(zipEntry) {
-            if (zipEntry.entryName.includes('json')) {
-                filesToUngzip.push(zipEntry.entryName)
-                zipped.extractEntryTo(zipEntry.entryName, `${writePath}`, false, true);
-
-
-            }
         });
-        filesToUngzip = filesToUngzip.map((name) => {
-            return name.split('/')[1]
-        })
+
+        if (!response.ok) {
+            console.log(`AMP API ERROR: ${response.status} ${response.statusText}`)
+            return false;
+        } 
+
+        //download archive
+        console.log('   downloading data...');
+        writePath = path.resolve(`${dataPath}/downloaded`)
+        try {
+        await streamPipeline(response.body, createWriteStream(`${writePath}/data.zip`, streamOpts));
+        }
+        catch (e) {
+            console.log(`error downloading data`)
+            console.log(e)
+        }
+        const stats = statSync(`${writePath}/data.zip`);
+        const fileSizeInBytes = stats.size;
+        const fileSizeInMegabytes = fileSizeInBytes / 1000000.0;
+
+        //unzip
+        console.log(`   unzipping data... (${fileSizeInMegabytes} MB)`)
+        writePath = path.resolve(`${dataPath}/unzip`);
+
+        try {
+            execSync(`unzip -j ${escapeForShell(path.resolve(dataPath+"/downloaded/data.zip"))} -d ${escapeForShell(writePath)}`);
+            let allFiles = await readDirPromisified(writePath);
+            for (let file of allFiles) {
+                if (file.includes(".json.gz")) {
+                    filesToUngzip.push(file)
+                }
+
+            }
+            console.log(`       unzipped ${smartCommas(filesToUngzip.length)} files\n\n`)
+        } catch (e) {
+            console.log(`unzip is not available... trying adm-zip`)
+            const zipped = new zip(`${dataPath}/downloaded/data.zip`);
+            var zipEntries = zipped.getEntries(); // an array of ZipEntry records
+
+
+            zipEntries.forEach(function(zipEntry) {
+                if (zipEntry.entryName.includes('json')) {
+                    filesToUngzip.push(zipEntry.entryName)
+                    zipped.extractEntryTo(zipEntry.entryName, `${writePath}`, false, true);
+
+
+                }
+            });
+            filesToUngzip = filesToUngzip.map((name) => {
+                return name.split('/')[1]
+            })
+        }
+    } else {
+        filesToUngzip = await readDirPromisified(gzipFilesPath)
+        filesToUngzip = filesToUngzip.filter(f => f.endsWith('json.gz'));
     }
-
-
-
 
 
     //ungzip
@@ -113,7 +116,9 @@ async function main(creds, options, directory = "foo", isEU) {
     for (let file of filesToUngzip) {
         
         try {
-            let source = escapeForShell(path.resolve(`${dataPath}/unzip/${file}`))
+            let source = escapeForShell(path.resolve(
+                gzipFilesPath ? `${gzipFilesPath}/${file}` : `${dataPath}/unzip/${file}`
+            ))
             let dest = escapeForShell(path.resolve(`${writePath}/${file.split('.gz')[0]}`))
             execSync(`gunzip -c ${source} > ${dest}`);
             let numLines = execSync(`wc -l ${dest}`);
