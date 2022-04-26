@@ -78,6 +78,10 @@ async function main(listOfFilePaths, directory = "./savedData/foo/", mpToken) {
                     ["region", "$region"],
                     ["city", "$city"]
                 ]
+                let ampMixUserPairs = [
+                    ...ampMixPairs,
+                    ["platform", "platform"]
+                ]
 
                 //transform user props
                 let mpUserProfiles = json.filter((amplitudeEvent) => {
@@ -92,7 +96,7 @@ async function main(listOfFilePaths, directory = "./savedData/foo/", mpToken) {
                         }
 
                         //include defaults, if they exist
-                        for (let ampMixPair of ampMixPairs) {
+                        for (let ampMixPair of ampMixUserPairs) {
                             if (amplitudeEvent[ampMixPair[0]]) {
                                 profile.$set[ampMixPair[1]] = amplitudeEvent[ampMixPair[0]]
                             }
